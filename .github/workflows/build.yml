@@ -43,6 +43,10 @@ on:
         required: false
         type: boolean
         default: false
+      include-updater-json:
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   build:
@@ -282,6 +286,7 @@ jobs:
           WHISPER_NO_AVX: ${{ contains(inputs.platform, 'ubuntu') && !contains(inputs.platform, 'arm') && 'ON' || '' }}
           WHISPER_NO_AVX2: ${{ contains(inputs.platform, 'ubuntu') && !contains(inputs.platform, 'arm') && 'ON' || '' }}
         with:
+          includeUpdaterJson: ${{ inputs.include-updater-json }}
           tagName: ${{ inputs.release-id && format('v{0}', steps.get-version.outputs.version) || '' }}
           releaseName: ${{ inputs.release-id && format('v{0}', steps.get-version.outputs.version) || '' }}
           releaseId: ${{ inputs.release-id }}
