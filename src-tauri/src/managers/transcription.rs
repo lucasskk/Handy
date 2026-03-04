@@ -1,5 +1,8 @@
 use crate::audio_toolkit::{apply_custom_words, filter_transcription_output};
 use crate::managers::model::{EngineType, ModelManager};
+use crate::managers::parakeet_cpp::ParakeetCppEngine;
+#[cfg(windows)]
+use crate::managers::parakeet_windows::ParakeetWindowsEngine;
 use crate::settings::{get_settings, ModelUnloadTimeout};
 use anyhow::Result;
 use log::{debug, error, info, warn};
@@ -40,10 +43,24 @@ pub struct ModelStateEvent {
 enum LoadedEngine {
     Whisper(WhisperEngine),
     Parakeet(ParakeetEngine),
+    ParakeetCpp(ParakeetCppEngine),
+    #[cfg(windows)]
+    ParakeetWindows(ParakeetWindowsEngine),
     Moonshine(MoonshineEngine),
     MoonshineStreaming(MoonshineStreamingEngine),
     SenseVoice(SenseVoiceEngine),
     GigaAM(GigaAMEngine),
+}
+
+fn env_flag(name: &str) -> bool {
+    std::env::var(name)
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
 }
 
 #[derive(Clone)]
@@ -164,6 +181,9 @@ impl TranscriptionManager {
                 match loaded_engine {
                     LoadedEngine::Whisper(ref mut e) => e.unload_model(),
                     LoadedEngine::Parakeet(ref mut e) => e.unload_model(),
+                    LoadedEngine::ParakeetCpp(_) => {}
+                    #[cfg(windows)]
+                    LoadedEngine::ParakeetWindows(_) => {}
                     LoadedEngine::Moonshine(ref mut e) => e.unload_model(),
                     LoadedEngine::MoonshineStreaming(ref mut e) => e.unload_model(),
                     LoadedEngine::SenseVoice(ref mut e) => e.unload_model(),
@@ -265,24 +285,128 @@ impl TranscriptionManager {
                 LoadedEngine::Whisper(engine)
             }
             EngineType::Parakeet => {
-                let mut engine = ParakeetEngine::new();
-                engine
-                    .load_model_with_params(&model_path, ParakeetModelParams::int8())
-                    .map_err(|e| {
-                        let error_msg =
-                            format!("Failed to load parakeet model {}: {}", model_id, e);
-                        let _ = self.app_handle.emit(
-                            "model-state-changed",
-                            ModelStateEvent {
-                                event_type: "loading_failed".to_string(),
-                                model_id: Some(model_id.to_string()),
-                                model_name: Some(model_info.name.clone()),
-                                error: Some(error_msg.clone()),
-                            },
-                        );
-                        anyhow::anyhow!(error_msg)
-                    })?;
-                LoadedEngine::Parakeet(engine)
+                #[cfg(windows)]
+                {
+                    match ParakeetWindowsEngine::load_from_model_dir(&model_path) {
+                        Ok(engine) => {
+                            info!(
+                                "Loaded parakeet model {} using Windows {} backend",
+                                model_id,
+                                engine.provider_name()
+                            );
+                            LoadedEngine::ParakeetWindows(engine)
+                        }
+                        Err(parakeet_windows_error) => {
+                            let parakeet_windows_error = parakeet_windows_error.to_string();
+
+                            if env_flag("HANDY_PARAKEET_WINDOWS_REQUIRED")
+                                || env_flag("HANDY_PARAKEET_GPU_REQUIRED")
+                            {
+                                let error_msg = format!(
+                                    "Windows Parakeet GPU backend is required but unavailable for {}: {}",
+                                    model_id, parakeet_windows_error
+                                );
+                                let _ = self.app_handle.emit(
+                                    "model-state-changed",
+                                    ModelStateEvent {
+                                        event_type: "loading_failed".to_string(),
+                                        model_id: Some(model_id.to_string()),
+                                        model_name: Some(model_info.name.clone()),
+                                        error: Some(error_msg.clone()),
+                                    },
+                                );
+                                return Err(anyhow::anyhow!(error_msg));
+                            }
+
+                            warn!(
+                                "Windows Parakeet backend unavailable for {}: {}. Falling back to transcribe-rs backend.",
+                                model_id, parakeet_windows_error
+                            );
+
+                            let mut engine = ParakeetEngine::new();
+                            let fallback_error_hint = parakeet_windows_error.clone();
+                            engine
+                                .load_model_with_params(&model_path, ParakeetModelParams::int8())
+                                .map_err(|e| {
+                                    let error_msg = format!(
+                                        "Failed to load parakeet model {} with either backend (Windows Parakeet: {}; transcribe-rs: {})",
+                                        model_id, fallback_error_hint, e
+                                    );
+                                    let _ = self.app_handle.emit(
+                                        "model-state-changed",
+                                        ModelStateEvent {
+                                            event_type: "loading_failed".to_string(),
+                                            model_id: Some(model_id.to_string()),
+                                            model_name: Some(model_info.name.clone()),
+                                            error: Some(error_msg.clone()),
+                                        },
+                                    );
+                                    anyhow::anyhow!(error_msg)
+                                })?;
+                            LoadedEngine::Parakeet(engine)
+                        }
+                    }
+                }
+
+                #[cfg(not(windows))]
+                {
+                    match ParakeetCppEngine::load_from_model_dir(&model_path) {
+                        Ok(engine) => {
+                            info!(
+                                "Loaded parakeet model {} using Parakeet.cpp backend",
+                                model_id
+                            );
+                            LoadedEngine::ParakeetCpp(engine)
+                        }
+                        Err(parakeet_cpp_error) => {
+                            let parakeet_cpp_error = parakeet_cpp_error.to_string();
+
+                            if env_flag("HANDY_PARAKEET_CPP_REQUIRED") {
+                                let error_msg = format!(
+                                    "Parakeet.cpp backend is required but unavailable for {}: {}",
+                                    model_id, parakeet_cpp_error
+                                );
+                                let _ = self.app_handle.emit(
+                                    "model-state-changed",
+                                    ModelStateEvent {
+                                        event_type: "loading_failed".to_string(),
+                                        model_id: Some(model_id.to_string()),
+                                        model_name: Some(model_info.name.clone()),
+                                        error: Some(error_msg.clone()),
+                                    },
+                                );
+                                return Err(anyhow::anyhow!(error_msg));
+                            }
+
+                            warn!(
+                                "Parakeet.cpp backend unavailable for {}: {}. Falling back to transcribe-rs backend.",
+                                model_id, parakeet_cpp_error
+                            );
+
+                            let mut engine = ParakeetEngine::new();
+                            let fallback_error_hint = parakeet_cpp_error.clone();
+                            engine
+                                .load_model_with_params(&model_path, ParakeetModelParams::int8())
+                                .map_err(|e| {
+                                    let error_msg = format!(
+                                        "Failed to load parakeet model {} with either backend (Parakeet.cpp: {}; transcribe-rs: {})",
+                                        model_id, fallback_error_hint, e
+                                    );
+                                    let _ = self.app_handle.emit(
+                                        "model-state-changed",
+                                        ModelStateEvent {
+                                            event_type: "loading_failed".to_string(),
+                                            model_id: Some(model_id.to_string()),
+                                            model_name: Some(model_info.name.clone()),
+                                            error: Some(error_msg.clone()),
+                                        },
+                                    );
+                                    anyhow::anyhow!(error_msg)
+                                })?;
+                            LoadedEngine::Parakeet(engine)
+                        }
+                    }
+                }
             }
             EngineType::Moonshine => {
                 let mut engine = MoonshineEngine::new();
@@ -518,6 +642,31 @@ impl TranscriptionManager {
                                 .map_err(|e| {
                                     anyhow::anyhow!("Parakeet transcription failed: {}", e)
                                 })
+                        }
+                        LoadedEngine::ParakeetCpp(parakeet_cpp_engine) => {
+                            let text =
+                                parakeet_cpp_engine.transcribe_samples(audio).map_err(|e| {
+                                    anyhow::anyhow!("Parakeet.cpp transcription failed: {}", e)
+                                })?;
+
+                            Ok(transcribe_rs::TranscriptionResult {
+                                text,
+                                segments: None,
+                            })
+                        }
+                        #[cfg(windows)]
+                        LoadedEngine::ParakeetWindows(parakeet_windows_engine) => {
+                            let text =
+                                parakeet_windows_engine
+                                    .transcribe_samples(audio)
+                                    .map_err(|e| {
+                                        anyhow::anyhow!("Parakeet transcription failed: {}", e)
+                                    })?;
+
+                            Ok(transcribe_rs::TranscriptionResult {
+                                text,
+                                segments: None,
+                            })
                         }
                         LoadedEngine::Moonshine(moonshine_engine) => moonshine_engine
                             .transcribe_samples(audio, None)
