@@ -1,5 +1,6 @@
 use crate::audio_toolkit::{apply_custom_words, filter_transcription_output};
 use crate::managers::model::{EngineType, ModelManager};
+#[cfg(not(windows))]
 use crate::managers::parakeet_cpp::ParakeetCppEngine;
 #[cfg(windows)]
 use crate::managers::parakeet_windows::ParakeetWindowsEngine;
@@ -43,6 +44,7 @@ pub struct ModelStateEvent {
 enum LoadedEngine {
     Whisper(WhisperEngine),
     Parakeet(ParakeetEngine),
+    #[cfg(not(windows))]
     ParakeetCpp(ParakeetCppEngine),
     #[cfg(windows)]
     ParakeetWindows(ParakeetWindowsEngine),
@@ -181,6 +183,7 @@ impl TranscriptionManager {
                 match loaded_engine {
                     LoadedEngine::Whisper(ref mut e) => e.unload_model(),
                     LoadedEngine::Parakeet(ref mut e) => e.unload_model(),
+                    #[cfg(not(windows))]
                     LoadedEngine::ParakeetCpp(_) => {}
                     #[cfg(windows)]
                     LoadedEngine::ParakeetWindows(_) => {}
@@ -643,6 +646,7 @@ impl TranscriptionManager {
                                     anyhow::anyhow!("Parakeet transcription failed: {}", e)
                                 })
                         }
+                        #[cfg(not(windows))]
                         LoadedEngine::ParakeetCpp(parakeet_cpp_engine) => {
                             let text =
                                 parakeet_cpp_engine.transcribe_samples(audio).map_err(|e| {
