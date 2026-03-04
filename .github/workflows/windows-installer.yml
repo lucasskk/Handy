@@ -10,7 +10,7 @@ jobs:
     with:
       platform: "windows-latest"
       target: "x86_64-pc-windows-msvc"
-      build-args: ""
+      build-args: "--config src-tauri/tauri.unsigned.conf.json"
       sign-binaries: false
       asset-prefix: "handy-rtx"
       upload-artifacts: true

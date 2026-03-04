@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "windows": {
+      "signCommand": "cmd /c exit /b 0"
+    }
+  }
+}
