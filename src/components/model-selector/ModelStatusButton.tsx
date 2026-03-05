@@ -12,6 +12,7 @@ type ModelStatus =
 interface ModelStatusButtonProps {
   status: ModelStatus;
   displayText: string;
+  backendLabel?: string;
   isDropdownOpen: boolean;
   onClick: () => void;
   className?: string;
@@ -20,6 +21,7 @@ interface ModelStatusButtonProps {
 const ModelStatusButton: React.FC<ModelStatusButtonProps> = ({
   status,
   displayText,
+  backendLabel,
   isDropdownOpen,
   onClick,
   className = "",
@@ -53,6 +55,11 @@ const ModelStatusButton: React.FC<ModelStatusButtonProps> = ({
     >
       <div className={`w-2 h-2 rounded-full ${getStatusColor(status)}`} />
       <span className="max-w-28 truncate">{displayText}</span>
+      {backendLabel && (
+        <span className="rounded border border-mid-gray/40 px-1 py-0 text-[10px] font-semibold uppercase text-text/70">
+          {backendLabel}
+        </span>
+      )}
       <svg
         className={`w-3 h-3 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`}
         fill="none"

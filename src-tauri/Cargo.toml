@@ -108,6 +108,7 @@ gtk = "0.18"
 tauri-runtime = { git = "https://github.com/cjpais/tauri.git", branch = "handy-2.10.2" }
 tauri-runtime-wry = { git = "https://github.com/cjpais/tauri.git", branch = "handy-2.10.2" }
 tauri-utils = { git = "https://github.com/cjpais/tauri.git", branch = "handy-2.10.2" }
+parakeet-rs = { path = "vendor/parakeet-rs-0.2.7" }
 
 [dev-dependencies]
 tempfile = "3"

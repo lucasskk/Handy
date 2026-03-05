@@ -31,6 +31,7 @@ impl ProviderKind {
 pub struct ParakeetWindowsEngine {
     model: ParakeetTDT,
     provider: ProviderKind,
+    attempt_errors: Vec<String>,
 }
 
 impl ParakeetWindowsEngine {
@@ -59,7 +60,17 @@ impl ParakeetWindowsEngine {
                         provider.as_str(),
                         intra_threads
                     );
-                    return Ok(Self { model, provider });
+                    if !load_errors.is_empty() {
+                        warn!(
+                            "Parakeet Windows backend fallback path used: {}",
+                            load_errors.join("; ")
+                        );
+                    }
+                    return Ok(Self {
+                        model,
+                        provider,
+                        attempt_errors: load_errors,
+                    });
                 }
                 Err(error) => {
                     let message = format!("{}: {}", provider.as_str(), error);
@@ -81,6 +92,18 @@ impl ParakeetWindowsEngine {
 
     pub fn provider_name(&self) -> &'static str {
         self.provider.as_str()
+    }
+
+    pub fn backend_details(&self) -> Option<String> {
+        if self.attempt_errors.is_empty() {
+            None
+        } else {
+            Some(format!(
+                "Provider fallback to {} after: {}",
+                self.provider.as_str(),
+                self.attempt_errors.join("; ")
+            ))
+        }
     }
 
     pub fn transcribe_samples(&mut self, samples: Vec<f32>) -> Result<String> {

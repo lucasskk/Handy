@@ -15,6 +15,28 @@ interface ModelStateEvent {
   error?: string;
 }
 
+interface ModelBackendEvent {
+  model_id?: string;
+  backend?: string;
+  details?: string;
+}
+
+const formatBackendLabel = (backend: string | null): string | null => {
+  if (!backend) return null;
+
+  switch (backend.toLowerCase()) {
+    case "cuda":
+      return "CUDA";
+    case "directml":
+      return "DIRECTML";
+    case "cpu":
+    case "parakeet-cpu-fallback":
+      return "CPU";
+    default:
+      return backend.toUpperCase();
+  }
+};
+
 type ModelStatus =
   | "ready"
   | "loading"
@@ -41,6 +63,8 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
 
   const [modelStatus, setModelStatus] = useState<ModelStatus>("unloaded");
   const [modelError, setModelError] = useState<string | null>(null);
+  const [activeBackend, setActiveBackend] = useState<string | null>(null);
+  const [backendDetails, setBackendDetails] = useState<string | null>(null);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   // Track pending model switch for optimistic display
   const [pendingModelId, setPendingModelId] = useState<string | null>(null);
@@ -100,6 +124,15 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
       },
     );
 
+    const modelBackendUnlisten = listen<ModelBackendEvent>(
+      "model-backend-changed",
+      (event) => {
+        const backend = event.payload.backend?.trim();
+        setActiveBackend(backend || null);
+        setBackendDetails(event.payload.details ?? null);
+      },
+    );
+
     // Auto-select model when download completes (fires after extraction too)
     const downloadCompleteUnlisten = listen<string>(
       "model-download-complete",
@@ -139,6 +172,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
       modelStateUnlisten.then((fn) => fn());
+      modelBackendUnlisten.then((fn) => fn());
       downloadCompleteUnlisten.then((fn) => fn());
     };
   }, [selectModel]);
@@ -230,16 +264,31 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
     return modelStatus;
   };
 
+  const displayStatus = getDisplayStatus();
+  const backendLabel =
+    displayStatus === "ready" ||
+    displayStatus === "loading" ||
+    displayStatus === "unloaded"
+      ? formatBackendLabel(activeBackend)
+      : null;
+  const backendHint = backendDetails ? ` • ${backendDetails}` : "";
+
   return (
     <>
       {/* Model Status and Switcher */}
       <div className="relative" ref={dropdownRef}>
         <ModelStatusButton
-          status={getDisplayStatus()}
+          status={displayStatus}
           displayText={getModelDisplayText()}
+          backendLabel={backendLabel || undefined}
           isDropdownOpen={showModelDropdown}
           onClick={() => setShowModelDropdown(!showModelDropdown)}
         />
+        {backendHint && (
+          <div className="max-w-72 truncate text-[10px] text-text/60" title={backendDetails || undefined}>
+            {backendHint}
+          </div>
+        )}
 
         {/* Model Dropdown */}
         {showModelDropdown && (

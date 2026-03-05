@@ -41,6 +41,13 @@ pub struct ModelStateEvent {
     pub error: Option<String>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct ModelBackendEvent {
+    pub model_id: Option<String>,
+    pub backend: Option<String>,
+    pub details: Option<String>,
+}
+
 enum LoadedEngine {
     Whisper(WhisperEngine),
     Parakeet(ParakeetEngine),
@@ -52,6 +59,24 @@ enum LoadedEngine {
     MoonshineStreaming(MoonshineStreamingEngine),
     SenseVoice(SenseVoiceEngine),
     GigaAM(GigaAMEngine),
+}
+
+fn loaded_engine_backend_info(engine: &LoadedEngine) -> (Option<String>, Option<String>) {
+    match engine {
+        LoadedEngine::Whisper(_) => (Some("whisper".to_string()), None),
+        LoadedEngine::Parakeet(_) => (Some("parakeet-cpu-fallback".to_string()), None),
+        #[cfg(not(windows))]
+        LoadedEngine::ParakeetCpp(_) => (Some("parakeet-cpp".to_string()), None),
+        #[cfg(windows)]
+        LoadedEngine::ParakeetWindows(engine) => (
+            Some(engine.provider_name().to_string()),
+            engine.backend_details(),
+        ),
+        LoadedEngine::Moonshine(_) => (Some("moonshine".to_string()), None),
+        LoadedEngine::MoonshineStreaming(_) => (Some("moonshine-streaming".to_string()), None),
+        LoadedEngine::SenseVoice(_) => (Some("sensevoice".to_string()), None),
+        LoadedEngine::GigaAM(_) => (Some("gigaam".to_string()), None),
+    }
 }
 
 fn env_flag(name: &str) -> bool {
@@ -211,6 +236,15 @@ impl TranscriptionManager {
             },
         );
 
+        let _ = self.app_handle.emit(
+            "model-backend-changed",
+            ModelBackendEvent {
+                model_id: None,
+                backend: None,
+                details: None,
+            },
+        );
+
         let unload_duration = unload_start.elapsed();
         debug!(
             "Model unloaded manually (took {}ms)",
@@ -244,6 +278,15 @@ impl TranscriptionManager {
                 model_id: Some(model_id.to_string()),
                 model_name: None,
                 error: None,
+            },
+        );
+
+        let _ = self.app_handle.emit(
+            "model-backend-changed",
+            ModelBackendEvent {
+                model_id: Some(model_id.to_string()),
+                backend: None,
+                details: None,
             },
         );
 
@@ -495,6 +538,8 @@ impl TranscriptionManager {
             }
         };
 
+        let (backend, backend_details) = loaded_engine_backend_info(&loaded_engine);
+
         // Update the current engine and model ID
         {
             let mut engine = self.lock_engine();
@@ -513,6 +558,15 @@ impl TranscriptionManager {
                 model_id: Some(model_id.to_string()),
                 model_name: Some(model_info.name.clone()),
                 error: None,
+            },
+        );
+
+        let _ = self.app_handle.emit(
+            "model-backend-changed",
+            ModelBackendEvent {
+                model_id: Some(model_id.to_string()),
+                backend,
+                details: backend_details,
             },
         );
 
@@ -744,6 +798,15 @@ impl TranscriptionManager {
                             model_id: None,
                             model_name: None,
                             error: Some(format!("Engine panicked: {}", panic_msg)),
+                        },
+                    );
+
+                    let _ = self.app_handle.emit(
+                        "model-backend-changed",
+                        ModelBackendEvent {
+                            model_id: None,
+                            backend: None,
+                            details: None,
                         },
                     );
 
