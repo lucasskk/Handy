@@ -90,6 +90,17 @@ fn env_flag(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(windows)]
+fn parakeet_windows_backend_required() -> bool {
+    if env_flag("HANDY_PARAKEET_WINDOWS_REQUIRED") || env_flag("HANDY_PARAKEET_GPU_REQUIRED") {
+        return true;
+    }
+
+    std::env::var("HANDY_PARAKEET_WINDOWS_PROVIDER")
+        .map(|value| value.trim().eq_ignore_ascii_case("cuda"))
+        .unwrap_or(false)
+}
+
 #[derive(Clone)]
 pub struct TranscriptionManager {
     engine: Arc<Mutex<Option<LoadedEngine>>>,
@@ -333,7 +344,8 @@ impl TranscriptionManager {
             EngineType::Parakeet => {
                 #[cfg(windows)]
                 {
-                    match ParakeetWindowsEngine::load_from_model_dir(&model_path) {
+                    match ParakeetWindowsEngine::load_from_model_dir(&self.app_handle, &model_path)
+                    {
                         Ok(engine) => {
                             info!(
                                 "Loaded parakeet model {} using Windows {} backend",
@@ -345,9 +357,7 @@ impl TranscriptionManager {
                         Err(parakeet_windows_error) => {
                             let parakeet_windows_error = parakeet_windows_error.to_string();
 
-                            if env_flag("HANDY_PARAKEET_WINDOWS_REQUIRED")
-                                || env_flag("HANDY_PARAKEET_GPU_REQUIRED")
-                            {
+                            if parakeet_windows_backend_required() {
                                 let error_msg = format!(
                                     "Windows Parakeet GPU backend is required but unavailable for {}: {}",
                                     model_id, parakeet_windows_error

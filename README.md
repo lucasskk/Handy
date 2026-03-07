@@ -43,6 +43,25 @@ The process is entirely local:
 4. Configure your preferred keyboard shortcuts in Settings
 5. Start transcribing!
 
+#### Windows CUDA Prerequisites (Parakeet strict CUDA mode)
+
+Windows installers require these runtime DLLs before installation continues:
+
+- `cublas64_12.dll`
+- `cublasLt64_12.dll`
+- `cudart64_12.dll`
+- `cufft64_11.dll`
+- `cudnn64_9.dll`
+
+The installer checks these locations:
+
+- `CUDA_PATH_V12_9\bin`
+- `CUDA_PATH\bin`
+- `%ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\*\bin`
+- `%ProgramFiles%\NVIDIA\CUDNN\*\bin\*\x64`
+
+If install is blocked, install NVIDIA CUDA 12 runtime + cuDNN 9 runtime, then rerun the installer.
+
 ### Development Setup
 
 For detailed build instructions including platform-specific requirements, see [BUILD.md](BUILD.md).

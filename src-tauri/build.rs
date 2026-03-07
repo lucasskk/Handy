@@ -2,6 +2,9 @@ fn main() {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     build_apple_intelligence_bridge();
 
+    #[cfg(windows)]
+    ensure_windows_onnxruntime_cuda_dlls();
+
     generate_tray_translations();
 
     tauri_build::build()
@@ -109,6 +112,239 @@ fn escape_string(s: &str) -> String {
         .replace('\n', "\\n")
         .replace('\r', "\\r")
         .replace('\t', "\\t")
+}
+
+#[cfg(windows)]
+fn ensure_windows_onnxruntime_cuda_dlls() {
+    use flate2::read::GzDecoder;
+    use sha2::{Digest, Sha256};
+    use std::env;
+    use std::fs;
+    use std::io;
+    use std::path::{Path, PathBuf};
+    use tar::Archive;
+
+    const REQUIRED_DLLS: [&str; 2] = [
+        "onnxruntime_providers_shared.dll",
+        "onnxruntime_providers_cuda.dll",
+    ];
+    const CUDA_BUNDLE_URL: &str =
+        "https://cdn.pyke.io/0/pyke:ort-rs/ms@1.22.0/x86_64-pc-windows-msvc+cu12.tgz";
+    const CUDA_BUNDLE_SHA256: &str =
+        "743380B97FAC97EDB2CB0DD656C517B99C5FEDD37516DA40F696335A3EDB5E55";
+
+    println!("cargo:rerun-if-env-changed=HANDY_ORT_DLL_DIR");
+    println!("cargo:rerun-if-env-changed=ORT_LIB_LOCATION");
+
+    let manifest_dir = match env::var("CARGO_MANIFEST_DIR") {
+        Ok(value) => PathBuf::from(value),
+        Err(error) => {
+            println!(
+                "cargo:warning=Unable to resolve CARGO_MANIFEST_DIR for ONNX Runtime CUDA DLL preparation: {}",
+                error
+            );
+            return;
+        }
+    };
+
+    let destination_dir = manifest_dir.join("resources").join("onnxruntime");
+    println!("cargo:rerun-if-changed={}", destination_dir.display());
+
+    if let Err(error) = fs::create_dir_all(&destination_dir) {
+        println!(
+            "cargo:warning=Failed to create ONNX Runtime resources directory {}: {}",
+            destination_dir.display(),
+            error
+        );
+        return;
+    }
+
+    if required_dlls_present(&destination_dir, &REQUIRED_DLLS) {
+        return;
+    }
+
+    if copy_required_dlls_from_candidates(&destination_dir, &REQUIRED_DLLS).is_ok() {
+        println!(
+            "cargo:warning=Prepared ONNX Runtime CUDA provider DLLs from local cache for bundling."
+        );
+        return;
+    }
+
+    let out_dir = match env::var("OUT_DIR") {
+        Ok(value) => PathBuf::from(value),
+        Err(error) => {
+            println!(
+                "cargo:warning=Unable to resolve OUT_DIR for ONNX Runtime CUDA DLL download: {}",
+                error
+            );
+            return;
+        }
+    };
+
+    match download_and_extract_required_dlls(
+        CUDA_BUNDLE_URL,
+        CUDA_BUNDLE_SHA256,
+        &out_dir,
+        &destination_dir,
+        &REQUIRED_DLLS,
+    ) {
+        Ok(()) => {
+            println!("cargo:warning=Downloaded ONNX Runtime CUDA provider DLLs for Windows bundle.")
+        }
+        Err(error) => println!(
+            "cargo:warning=Unable to prepare ONNX Runtime CUDA provider DLLs automatically: {}",
+            error
+        ),
+    }
+
+    fn required_dlls_present(directory: &Path, required: &[&str]) -> bool {
+        required.iter().all(|name| directory.join(name).is_file())
+    }
+
+    fn copy_required_dlls_from_candidates(destination: &Path, required: &[&str]) -> io::Result<()> {
+        let mut candidates = Vec::new();
+
+        if let Ok(custom_dir) = env::var("HANDY_ORT_DLL_DIR") {
+            push_unique_dir(&mut candidates, PathBuf::from(custom_dir));
+        }
+
+        if let Ok(ort_lib_location) = env::var("ORT_LIB_LOCATION") {
+            let base = PathBuf::from(ort_lib_location);
+            push_unique_dir(&mut candidates, base.clone());
+            push_unique_dir(&mut candidates, base.join("lib"));
+        }
+
+        if let Some(local_app_data) = env::var_os("LOCALAPPDATA") {
+            let cache_base = PathBuf::from(local_app_data)
+                .join("cache")
+                .join("dfbin")
+                .join("x86_64-pc-windows-msvc");
+            if cache_base.is_dir() {
+                for entry in fs::read_dir(cache_base)? {
+                    let path = entry?.path();
+                    push_unique_dir(&mut candidates, path.join("onnxruntime").join("lib"));
+                }
+            }
+        }
+
+        for source in candidates {
+            if !required_dlls_present(&source, required) {
+                continue;
+            }
+
+            copy_required_dlls(&source, destination, required)?;
+            if required_dlls_present(destination, required) {
+                return Ok(());
+            }
+        }
+
+        Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "No local ONNX Runtime CUDA provider DLL source found",
+        ))
+    }
+
+    fn copy_required_dlls(source: &Path, destination: &Path, required: &[&str]) -> io::Result<()> {
+        fs::create_dir_all(destination)?;
+        for dll in required {
+            let from = source.join(dll);
+            if from.is_file() {
+                let to = destination.join(dll);
+                if !to.is_file() {
+                    fs::copy(from, to)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn download_and_extract_required_dlls(
+        archive_url: &str,
+        expected_sha256: &str,
+        out_dir: &Path,
+        destination: &Path,
+        required: &[&str],
+    ) -> io::Result<()> {
+        let downloaded = ureq::Agent::new_with_config(
+            ureq::config::Config::builder()
+                .https_only(true)
+                .tls_config(
+                    ureq::tls::TlsConfig::builder()
+                        .provider(ureq::tls::TlsProvider::NativeTls)
+                        .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+                        .build(),
+                )
+                .build(),
+        )
+        .get(archive_url)
+        .call()
+        .map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!("Failed to download ONNX Runtime CUDA archive: {}", error),
+            )
+        })?
+        .into_body()
+        .into_with_config()
+        .limit(1_073_741_824)
+        .read_to_vec()
+        .map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!(
+                    "Failed to read ONNX Runtime CUDA archive response: {}",
+                    error
+                ),
+            )
+        })?;
+
+        let actual_sha256 = {
+            let digest = Sha256::digest(&downloaded);
+            digest
+                .iter()
+                .map(|byte| format!("{:02X}", byte))
+                .collect::<String>()
+        };
+
+        if actual_sha256 != expected_sha256 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "Unexpected ONNX Runtime CUDA archive SHA-256. Expected {}, got {}",
+                    expected_sha256, actual_sha256
+                ),
+            ));
+        }
+
+        let extract_dir = out_dir.join("onnxruntime-cuda-bundle");
+        if extract_dir.is_dir() {
+            fs::remove_dir_all(&extract_dir)?;
+        }
+        fs::create_dir_all(&extract_dir)?;
+
+        let decoder = GzDecoder::new(downloaded.as_slice());
+        let mut archive = Archive::new(decoder);
+        archive.unpack(&extract_dir)?;
+
+        let lib_dir = extract_dir.join("onnxruntime").join("lib");
+        if !required_dlls_present(&lib_dir, required) {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!(
+                    "Downloaded ONNX Runtime archive did not contain required CUDA provider DLLs in {}",
+                    lib_dir.display()
+                ),
+            ));
+        }
+
+        copy_required_dlls(&lib_dir, destination, required)
+    }
+
+    fn push_unique_dir(directories: &mut Vec<PathBuf>, candidate: PathBuf) {
+        if candidate.is_dir() && !directories.iter().any(|existing| existing == &candidate) {
+            directories.push(candidate);
+        }
+    }
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

@@ -1,0 +1,97 @@
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <Property Id="HANDY_CUDA_PATH_V12_9">
+      <RegistrySearch
+        Id="HandyCudaPathV129Machine"
+        Root="HKLM"
+        Key="SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
+        Name="CUDA_PATH_V12_9"
+        Type="raw"
+        Win64="yes"
+      />
+      <RegistrySearch
+        Id="HandyCudaPathV129User"
+        Root="HKCU"
+        Key="Environment"
+        Name="CUDA_PATH_V12_9"
+        Type="raw"
+      />
+    </Property>
+
+    <Property Id="HANDY_CUDA_PATH">
+      <RegistrySearch
+        Id="HandyCudaPathMachine"
+        Root="HKLM"
+        Key="SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
+        Name="CUDA_PATH"
+        Type="raw"
+        Win64="yes"
+      />
+      <RegistrySearch
+        Id="HandyCudaPathUser"
+        Root="HKCU"
+        Key="Environment"
+        Name="CUDA_PATH"
+        Type="raw"
+      />
+    </Property>
+
+    <Property Id="HANDY_CUBLAS_FOUND">
+      <DirectorySearch Id="HandyCublasFromCudaPathV129" Path="[HANDY_CUDA_PATH_V12_9]\bin">
+        <FileSearch Name="cublas64_12.dll" />
+      </DirectorySearch>
+      <DirectorySearch Id="HandyCublasFromCudaPath" Path="[HANDY_CUDA_PATH]\bin">
+        <FileSearch Name="cublas64_12.dll" />
+      </DirectorySearch>
+      <DirectorySearch Id="HandyCublasFromProgramFilesCuda" Path="[ProgramFiles64Folder]NVIDIA GPU Computing Toolkit\CUDA" Depth="3">
+        <FileSearch Name="cublas64_12.dll" />
+      </DirectorySearch>
+    </Property>
+
+    <Property Id="HANDY_CUBLASLT_FOUND">
+      <DirectorySearch Id="HandyCublasLtFromCudaPathV129" Path="[HANDY_CUDA_PATH_V12_9]\bin">
+        <FileSearch Name="cublasLt64_12.dll" />
+      </DirectorySearch>
+      <DirectorySearch Id="HandyCublasLtFromCudaPath" Path="[HANDY_CUDA_PATH]\bin">
+        <FileSearch Name="cublasLt64_12.dll" />
+      </DirectorySearch>
+      <DirectorySearch Id="HandyCublasLtFromProgramFilesCuda" Path="[ProgramFiles64Folder]NVIDIA GPU Computing Toolkit\CUDA" Depth="3">
+        <FileSearch Name="cublasLt64_12.dll" />
+      </DirectorySearch>
+    </Property>
+
+    <Property Id="HANDY_CUDART_FOUND">
+      <DirectorySearch Id="HandyCudartFromCudaPathV129" Path="[HANDY_CUDA_PATH_V12_9]\bin">
+        <FileSearch Name="cudart64_12.dll" />
+      </DirectorySearch>
+      <DirectorySearch Id="HandyCudartFromCudaPath" Path="[HANDY_CUDA_PATH]\bin">
+        <FileSearch Name="cudart64_12.dll" />
+      </DirectorySearch>
+      <DirectorySearch Id="HandyCudartFromProgramFilesCuda" Path="[ProgramFiles64Folder]NVIDIA GPU Computing Toolkit\CUDA" Depth="3">
+        <FileSearch Name="cudart64_12.dll" />
+      </DirectorySearch>
+    </Property>
+
+    <Property Id="HANDY_CUFFT_FOUND">
+      <DirectorySearch Id="HandyCufftFromCudaPathV129" Path="[HANDY_CUDA_PATH_V12_9]\bin">
+        <FileSearch Name="cufft64_11.dll" />
+      </DirectorySearch>
+      <DirectorySearch Id="HandyCufftFromCudaPath" Path="[HANDY_CUDA_PATH]\bin">
+        <FileSearch Name="cufft64_11.dll" />
+      </DirectorySearch>
+      <DirectorySearch Id="HandyCufftFromProgramFilesCuda" Path="[ProgramFiles64Folder]NVIDIA GPU Computing Toolkit\CUDA" Depth="3">
+        <FileSearch Name="cufft64_11.dll" />
+      </DirectorySearch>
+    </Property>
+
+    <Property Id="HANDY_CUDNN_FOUND">
+      <DirectorySearch Id="HandyCudnnFromProgramFiles" Path="[ProgramFiles64Folder]NVIDIA\CUDNN" Depth="5">
+        <FileSearch Name="cudnn64_9.dll" />
+      </DirectorySearch>
+    </Property>
+
+    <Condition Message="CUDA prerequisites are missing. Handy is configured for strict CUDA mode and cannot be installed until these runtime DLLs are available: cublas64_12.dll, cublasLt64_12.dll, cudart64_12.dll, cufft64_11.dll, cudnn64_9.dll. Checked CUDA_PATH_V12_9, CUDA_PATH, %ProgramFiles%\NVIDIA GPU Computing Toolkit\CUDA\*\bin, and %ProgramFiles%\NVIDIA\CUDNN\*\bin\*\x64. Install NVIDIA CUDA 12 and cuDNN 9 runtimes, then run the installer again.">
+      Installed OR (HANDY_CUBLAS_FOUND AND HANDY_CUBLASLT_FOUND AND HANDY_CUDART_FOUND AND HANDY_CUFFT_FOUND AND HANDY_CUDNN_FOUND)
+    </Condition>
+  </Fragment>
+</Wix>
